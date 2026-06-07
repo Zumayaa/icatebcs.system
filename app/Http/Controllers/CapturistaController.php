@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\Inscripcion;
 use App\Models\Curso;
-use App\Models\Capacitando;
-use Inertia\Inertia;
+use App\Models\Inscripcion;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Inertia\Inertia;
 
 class CapturistaController extends Controller
 {
@@ -16,7 +16,6 @@ class CapturistaController extends Controller
         $search = $request->input('search');
         $tab = $request->input('tab', 'todos');
 
-        // 1. CONSULTA PRINCIPAL PARA LA TABLA (Con buscador y pestañas)
         $query = Inscripcion::with(['capacitando', 'curso'])
             ->when($search, function ($q, $search) {
                 $q->whereHas('capacitando', function ($sub) use ($search) {
@@ -33,97 +32,116 @@ class CapturistaController extends Controller
 
         $inscripciones = $query->orderBy('created_at', 'desc')->get();
 
-        // 2. INDICADORES (KPIs) REALES
         $stats = [
-            'activos' => Inscripcion::where('estado', 'validado')->count(),
+            'activos' => Inscripcion::where('estado', 'validado')->where('resultado', '!=', 'baja')->count(),
             'por_validar' => Inscripcion::where('estado', 'pre-registrado')->count(),
-            'constancias' => Inscripcion::where('estado', 'aprobado')->count(),
+            'constancias' => Inscripcion::where('resultado', 'aprobado')->count(),
             'cursos' => Curso::where('activo', true)->count(),
         ];
 
-        // 3. DEMOGRAFÍA POR SEDE (Gráfica de barras) - Arreglado el error del GROUP BY
         $sedes = DB::table('inscripciones')
             ->join('cursos', 'inscripciones.curso_id', '=', 'cursos.id')
             ->select('cursos.unidad_capacitacion as sede', DB::raw('count(*) as total'))
             ->groupBy('cursos.unidad_capacitacion')
             ->get();
-        
-        $totalInscripciones = Inscripcion::count() ?: 1; 
-        
-        $demografia = $sedes->map(function($item) use ($totalInscripciones) {
+
+        $totalInscripciones = Inscripcion::count() ?: 1;
+
+        $demografia = $sedes->map(function ($item) use ($totalInscripciones) {
             return [
                 'sede' => $item->sede,
                 'total' => $item->total,
-                'porcentaje' => round(($item->total / $totalInscripciones) * 100)
+                'porcentaje' => round(($item->total / $totalInscripciones) * 100),
             ];
         });
 
-        // 4. DISTRIBUCIÓN POR EDAD (Para gráfica de Chart.js)
         $edadesRaw = DB::table('capacitandos')
-            ->selectRaw('TIMESTAMPDIFF(YEAR, fecha_nacimiento, CURDATE()) as edad')
-            ->get();
-            
+            ->pluck('fecha_nacimiento')
+            ->map(fn ($fecha) => now()->diffInYears($fecha));
+
         $edades = [
+            '15-17' => $edadesRaw->whereBetween('edad', [15, 17])->count(),
             '18-25' => $edadesRaw->whereBetween('edad', [18, 25])->count(),
             '26-35' => $edadesRaw->whereBetween('edad', [26, 35])->count(),
             '36-45' => $edadesRaw->whereBetween('edad', [36, 45])->count(),
             '46+' => $edadesRaw->where('edad', '>=', 46)->count(),
         ];
 
-        // Mandamos todo a React
         return Inertia::render('Capturista/Index', [
             'inscripciones' => $inscripciones,
             'filters' => ['search' => $search, 'tab' => $tab],
             'stats' => $stats,
             'demografia' => $demografia,
-            'edades' => $edades
+            'edades' => $edades,
         ]);
     }
 
-    // Procesa el modal: guarda checklist, notas y crea el No. de Control
     public function validar(Request $request, $id)
     {
-        // 1. BLINDAJE: Si alguien intenta hackear y manda la petición sin los checks, Laravel la rebota
         $request->validate([
             'chk_id' => 'accepted',
             'chk_curp' => 'accepted',
             'chk_domicilio' => 'accepted',
             'chk_fotos' => 'accepted',
+            'observaciones' => 'nullable|string|max:2000',
         ]);
 
-        // 2. Si pasó el candado, procedemos a guardar
-        $inscripcion = Inscripcion::findOrFail($id);
-        
-        $inscripcion->update([
-            'estado' => 'validado',
-            'chk_id' => $request->boolean('chk_id'),
-            'chk_curp' => $request->boolean('chk_curp'),
-            'chk_domicilio' => $request->boolean('chk_domicilio'),
-            'chk_fotos' => $request->boolean('chk_fotos'),
-            'observaciones' => $request->input('observaciones'),
-        ]);
+        return DB::transaction(function () use ($request, $id) {
+            $inscripcion = Inscripcion::with(['capacitando', 'curso'])
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $capacitando = $inscripcion->capacitando;
-        if (!$capacitando->numero_control) {
-            $prefijo = "ICAT-26-";
-            $nuevoNoControl = $prefijo . str_pad($capacitando->id, 5, '0', STR_PAD_LEFT);
-            
-            $capacitando->update([
-                'numero_control' => $nuevoNoControl,
-                'identificacion_validada' => true
+            if ($inscripcion->estado === 'validado') {
+                return back();
+            }
+
+            $validados = Inscripcion::where('curso_id', $inscripcion->curso_id)
+                ->where('estado', 'validado')
+                ->where('resultado', '!=', 'baja')
+                ->count();
+
+            if ($validados >= $inscripcion->curso->cupo_maximo) {
+                return back()->withErrors(['curso_id' => 'No se puede validar: el grupo ya alcanzo su cupo maximo.']);
+            }
+
+            $inscripcion->update([
+                'estado' => 'validado',
+                'chk_id' => $request->boolean('chk_id'),
+                'chk_curp' => $request->boolean('chk_curp'),
+                'chk_domicilio' => $request->boolean('chk_domicilio'),
+                'chk_fotos' => $request->boolean('chk_fotos'),
+                'observaciones' => $request->input('observaciones'),
             ]);
-        } else {
-            $capacitando->update(['identificacion_validada' => true]);
-        }
 
-        return back();
+            $capacitando = $inscripcion->capacitando;
+            $numeroControl = $capacitando->numero_control
+                ?: 'ICAT-' . now()->format('y') . '-' . str_pad($capacitando->id, 5, '0', STR_PAD_LEFT);
+
+            $capacitando->update([
+                'numero_control' => $numeroControl,
+                'identificacion_validada' => true,
+            ]);
+
+            Log::info('Expediente validado', [
+                'inscripcion_id' => $inscripcion->id,
+                'capacitando_id' => $capacitando->id,
+                'curso_id' => $inscripcion->curso_id,
+                'user_id' => auth()->id(),
+            ]);
+
+            return back();
+        });
     }
 
-    // Acuse de Recibo listo para la impresora
     public function imprimir($id)
     {
         $inscripcion = Inscripcion::with(['capacitando', 'curso'])->findOrFail($id);
-        
+
+        $alumno = $inscripcion->capacitando;
+        $curso = $inscripcion->curso;
+        $observaciones = $inscripcion->observaciones ?: 'Sin observaciones particulares en el expediente.';
+
         return response()->make("
             <html>
             <head>
@@ -146,40 +164,33 @@ class CapturistaController extends Controller
             </head>
             <body>
                 <button class='no-print-btn' onclick='window.print()'>Imprimir Acuse</button>
-                
                 <div class='header'>
                     <h1>INSTITUTO DE CAPACITACION PARA LOS TRABAJADORES DEL ESTADO DE BAJA CALIFORNIA SUR</h1>
-                    <p>Ficha oficial de inscripcion escolar (Sistema hibrido portal)</p>
+                    <p>Ficha oficial de inscripcion escolar</p>
                 </div>
-
                 <div class='section'>
                     <div class='section-title'>Datos del Alumno</div>
                     <table>
-                        <tr><td class='label'>Numero de Control:</td><td style='font-weight:bold; color: #1e3a8a;'>{$inscripcion->capacitando->numero_control}</td></tr>
-                        <tr><td class='label'>Nombre Completo:</td><td>{$inscripcion->capacitando->nombre_completo}</td></tr>
-                        <tr><td class='label'>CURP:</td><td>{$inscripcion->capacitando->curp}</td></tr>
-                        <tr><td class='label'>Telefono:</td><td>{$inscripcion->capacitando->telefono}</td></tr>
-                        <tr><td class='label'>ID Cotejada:</td><td>{$inscripcion->capacitando->tipo_identificacion}</td></tr>
+                        <tr><td class='label'>Numero de Control:</td><td style='font-weight:bold; color: #1e3a8a;'>" . e($alumno->numero_control) . "</td></tr>
+                        <tr><td class='label'>Nombre Completo:</td><td>" . e($alumno->nombre_completo) . "</td></tr>
+                        <tr><td class='label'>CURP:</td><td>" . e($alumno->curp) . "</td></tr>
+                        <tr><td class='label'>Telefono:</td><td>" . e($alumno->telefono) . "</td></tr>
+                        <tr><td class='label'>ID Cotejada:</td><td>" . e($alumno->tipo_identificacion) . "</td></tr>
                     </table>
                 </div>
-
                 <div class='section' style='margin-top: 30px;'>
                     <div class='section-title'>Detalles del Curso</div>
                     <table>
-                        <tr><td class='label'>Curso:</td><td style='font-weight:bold;'>{$inscripcion->curso->nombre}</td></tr>
-                        <tr><td class='label'>Unidad de Capacitacion:</td><td>{$inscripcion->curso->unidad_capacitacion}</td></tr>
-                        <tr><td class='label'>Horario / Dias:</td><td>{$inscripcion->curso->hora_inicio} - {$inscripcion->curso->hora_fin} / {$inscripcion->curso->dias_semana}</td></tr>
+                        <tr><td class='label'>Curso:</td><td style='font-weight:bold;'>" . e($curso->nombre) . "</td></tr>
+                        <tr><td class='label'>Unidad de Capacitacion:</td><td>" . e($curso->unidad_capacitacion) . "</td></tr>
+                        <tr><td class='label'>Horario / Dias:</td><td>" . e($curso->hora_inicio) . " - " . e($curso->hora_fin) . " / " . e($curso->dias_semana) . "</td></tr>
                         <tr><td class='label'>Estatus en Sistema:</td><td>VALIDADO / ALTA OFICIAL</td></tr>
                     </table>
                 </div>
-
                 <div class='section' style='margin-top: 30px;'>
                     <div class='section-title'>Observaciones de Ventanilla</div>
-                    <p style='font-size: 13px; font-style: italic; padding: 10px;'>
-                        " . ($inscripcion->observaciones ?? 'Sin observaciones particulares en el expediente.') . "
-                    </p>
+                    <p style='font-size: 13px; font-style: italic; padding: 10px;'>" . e($observaciones) . "</p>
                 </div>
-
                 <div class='signatures'>
                     <div class='signature-box' style='margin-top: 50px;'>Firma del Capacitando</div>
                     <div class='signature-box' style='margin-top: 50px;'>Sello y firma de control escolar</div>
@@ -192,26 +203,35 @@ class CapturistaController extends Controller
     public function exportar()
     {
         $inscripciones = Inscripcion::with(['capacitando', 'curso'])->get();
-        $filename = "reporte_general_icatebcs_" . date('Y-m-d') . ".csv";
+        $filename = 'reporte_general_icatebcs_' . date('Y-m-d') . '.csv';
         $headers = [
-            "Content-type" => "text/csv; charset=UTF-8",
-            "Content-Disposition" => "attachment; filename=$filename",
-            "Pragma" => "no-cache", "Cache-Control" => "must-revalidate, post-check=0, pre-check=0", "Expires" => "0"
+            'Content-type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=$filename",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
         ];
-        
-        $callback = function() use($inscripciones) {
+
+        $callback = function () use ($inscripciones) {
             $file = fopen('php://output', 'w');
-            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
-            fputcsv($file, ['Folio', 'No. Control', 'Nombre del Alumno', 'CURP', 'Telefono', 'Tipo ID', 'Curso Solicitado', 'Estado']);
+            fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            fputcsv($file, ['Folio', 'No. Control', 'Nombre del Alumno', 'CURP', 'Telefono', 'Tipo ID', 'Curso Solicitado', 'Estado', 'Resultado']);
             foreach ($inscripciones as $ins) {
                 fputcsv($file, [
-                    $ins->id, $ins->capacitando->numero_control ?? 'PENDIENTE', $ins->capacitando->nombre_completo,
-                    $ins->capacitando->curp, $ins->capacitando->telefono, $ins->capacitando->tipo_identificacion,
-                    $ins->curso->nombre, strtoupper($ins->estado)
+                    $ins->id,
+                    $ins->capacitando->numero_control ?? 'PENDIENTE',
+                    $ins->capacitando->nombre_completo,
+                    $ins->capacitando->curp,
+                    $ins->capacitando->telefono,
+                    $ins->capacitando->tipo_identificacion,
+                    $ins->curso->nombre,
+                    strtoupper($ins->estado),
+                    strtoupper($ins->resultado ?? 'pendiente'),
                 ]);
             }
             fclose($file);
         };
+
         return response()->stream($callback, 200, $headers);
     }
 }
