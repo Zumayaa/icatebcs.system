@@ -1,4 +1,4 @@
-import { Head, useForm, router } from '@inertiajs/react';
+import { Head, useForm, router, Link } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 import AdminLayout from '../../../Layouts/AdminLayout';
 
@@ -121,6 +121,11 @@ export default function Index({ cursos, capacitadores, filters }) {
 
                             {/* Botones de Acción */}
                             <div className="flex gap-2 pt-3 border-t border-gray-100/50 mt-1">
+                                {/* EL NUEVO BOTÓN */}
+                                <Link href={`/admin/cursos/${curso.id}`} className="btn-mas-info w-full !bg-[#6B1230] !text-white hover:!bg-[#4A0B20]">
+                                    Ver Grupo
+                                </Link>
+                                
                                 <button onClick={() => openEditModal(curso)} className="btn-mas-info w-full">
                                     Modificar
                                 </button>
@@ -128,7 +133,7 @@ export default function Index({ cursos, capacitadores, filters }) {
                                     onClick={() => router.patch(`/admin/cursos/${curso.id}/toggle`)} 
                                     className={`btn-mas-info w-full ${curso.activo ? '!text-orange-700 !border-orange-300 hover:!bg-orange-50' : '!text-green-700 !border-green-300 hover:!bg-green-50'}`}
                                 >
-                                    {curso.activo ? 'Pausar curso' : 'Reactivar'}
+                                    {curso.activo ? 'Pausar Curso' : 'Reactivar'}
                                 </button>
                             </div>
                         </div>

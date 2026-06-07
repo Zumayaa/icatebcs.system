@@ -87,7 +87,7 @@ class CursoController extends Controller
         $curso->update(['activo' => !$curso->activo]);
         return back();
     }
-    
+
     // Función para exportar todo el catálogo a Excel (CSV)
     public function exportar()
     {
@@ -115,5 +115,47 @@ class CursoController extends Controller
             fclose($file);
         };
         return response()->stream($callback, 200, $headers);
+    }
+    // Mostrar el Panel de un Curso Específico (El Salón de Clases)
+    public function show($id)
+    {
+        $curso = Curso::with(['capacitador', 'inscripciones' => function($query) {
+            // Solo metemos al salón a los que la ventanilla ya les dio el visto bueno
+            $query->where('estado', 'validado')->with('capacitando');
+        }])->findOrFail($id);
+
+        return Inertia::render('Admin/Cursos/Show', [
+            'curso' => $curso
+        ]);
+    }
+    // Guardar las Calificaciones Finales del Grupo de golpe
+    public function guardarAcreditacion(Request $request, $id)
+    {
+        $request->validate([
+            'alumnos' => 'required|array',
+            'alumnos.*.id' => 'required|exists:inscripciones,id',
+            'alumnos.*.calificacion' => 'nullable|numeric|min:0|max:10',
+            'alumnos.*.resultado' => 'required|in:pendiente,aprobado,reprobado,baja',
+        ]);
+
+        foreach ($request->alumnos as $alumnoData) {
+            \App\Models\Inscripcion::where('id', $alumnoData['id'])->update([
+                'calificacion' => $alumnoData['calificacion'],
+                'resultado' => $alumnoData['resultado'],
+            ]);
+        }
+
+        return back()->with('success', 'Acreditaciones guardadas correctamente.');
+    }
+
+    // Exportar la Lista en Blanco para imprimir (Vista base)
+    public function imprimirListaAsistencia($id)
+    {
+        $curso = Curso::with(['capacitador', 'inscripciones' => function($query) {
+            $query->where('estado', 'validado')->with('capacitando');
+        }])->findOrFail($id);
+
+        // Aquí podrías retornar la vista HTML de la lista que luego imprimes o conviertes a PDF
+        return response("Funcionalidad de impresión de la lista en blanco para el grupo {$curso->matricula} conectada.");
     }
 }
