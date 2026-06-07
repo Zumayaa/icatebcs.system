@@ -71,6 +71,7 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     
     // Cursos
     Route::get('/admin/cursos', [CursoController::class, 'index'])->name('cursos.index');
+    Route::get('/admin/cursos/exportar', [CursoController::class, 'exportar'])->name('cursos.exportar');
     Route::post('/admin/cursos', [CursoController::class, 'store'])->name('cursos.store');
     Route::put('/admin/cursos/{id}', [CursoController::class, 'update'])->name('cursos.update');
     Route::patch('/admin/cursos/{id}/toggle', [CursoController::class, 'toggleActivo'])->name('cursos.toggle');

@@ -87,4 +87,33 @@ class CursoController extends Controller
         $curso->update(['activo' => !$curso->activo]);
         return back();
     }
+    
+    // Función para exportar todo el catálogo a Excel (CSV)
+    public function exportar()
+    {
+        $cursos = Curso::with('capacitador')->get();
+        $filename = "catalogo_cursos_icatebcs_" . date('Y-m-d') . ".csv";
+        $headers = [
+            "Content-type" => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=$filename",
+            "Pragma" => "no-cache", "Cache-Control" => "must-revalidate, post-check=0, pre-check=0", "Expires" => "0"
+        ];
+        
+        $callback = function() use($cursos) {
+            $file = fopen('php://output', 'w');
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF)); // Soporte para acentos
+            fputcsv($file, ['Matricula', 'Nombre del Curso', 'Unidad Sede', 'Modalidad', 'Horas', 'Dias', 'Horario', 'Cupo', 'Costo', 'Instructor', 'Estado']);
+            
+            foreach ($cursos as $c) {
+                fputcsv($file, [
+                    $c->matricula, $c->nombre, $c->unidad_capacitacion, $c->modalidad, $c->horas_totales,
+                    $c->dias_semana, $c->hora_inicio . ' a ' . $c->hora_fin, $c->cupo_maximo, '$' . number_format($c->costo, 2),
+                    $c->capacitador ? $c->capacitador->nombre : 'SIN ASIGNAR',
+                    $c->activo ? 'ACTIVO' : 'PAUSADO'
+                ]);
+            }
+            fclose($file);
+        };
+        return response()->stream($callback, 200, $headers);
+    }
 }

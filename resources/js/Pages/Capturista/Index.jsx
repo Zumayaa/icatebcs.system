@@ -81,7 +81,7 @@ export default function Index({ inscripciones, filters, stats, demografia, edade
             <section className="animate-[fadeIn_0.35s_ease_both]">
                 <div className="section-header">
                     <span className="section-eyebrow">Panel Operativo</span>
-                    <h2 className="section-title">Ventanilla de Control Escolar</h2>
+                    <h2 className="section-title">Ventanilla de control escolar</h2>
                     <p className="section-sub">Resumen de inscripciones y validación de expedientes.</p>
                 </div>
 
@@ -209,7 +209,7 @@ export default function Index({ inscripciones, filters, stats, demografia, edade
             {/* BOTÓN FLOTANTE */}
             <a href="/capturista/exportar" className="fab-export flex items-center gap-2">
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                <span>Exportar Padrón</span>
+                <span>Exportar padrón</span>
             </a>
 
             {/* ════════ MODAL DE VALIDACIÓN DE EXPEDIENTES ════════ */}

@@ -55,7 +55,7 @@ export default function Index({ capacitadores, filters }) {
                 {/* Cabecera dividida con buscador integrado (Clases de tu CSS) */}
                 <div className="split-header">
                     <div>
-                        <h2 className="section-title">Plantilla de Instructores</h2>
+                        <h2 className="section-title">Plantilla de capacitadores</h2>
                         <p className="section-sub">Directorio oficial de capacitadores del instituto.</p>
                     </div>
 
@@ -72,7 +72,7 @@ export default function Index({ capacitadores, filters }) {
 
                 <div className="flex justify-end mt-6 mb-2">
                     <button onClick={openCreateModal} className="btn-search">
-                        ➕ Registrar Instructor
+                        Registrar instructor
                     </button>
                 </div>
 
@@ -109,10 +109,10 @@ export default function Index({ capacitadores, filters }) {
 
                             <div className="flex gap-2 pt-3 border-t border-gray-100/50 mt-2">
                                 <button onClick={() => openEditModal(cap)} className="btn-mas-info w-full">
-                                    ✏️ Editar
+                                    Editar
                                 </button>
                                 <button onClick={() => handleDelete(cap.id, cap.nombre)} className="btn-mas-info w-full !text-red-700 !border-red-200 hover:!bg-red-50">
-                                    🗑️ Dar de Baja
+                                    Dar de baja
                                 </button>
                             </div>
                         </div>
