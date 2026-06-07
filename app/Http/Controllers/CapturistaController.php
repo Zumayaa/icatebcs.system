@@ -14,26 +14,24 @@ class CapturistaController extends Controller
     public function index(Request $request)
     {
         $search = $request->input('search');
-        $alumnoEncontrado = null;
+        $tab = $request->input('tab', 'todos');
 
-        // 1. BUSCADOR REAL
-        if ($search) {
-            $inscripcion = Inscripcion::with(['capacitando', 'curso'])
-                ->whereHas('capacitando', function ($q) use ($search) {
-                    $q->where('curp', $search)
-                      ->orWhere('nombre_completo', 'like', "%{$search}%");
-                })->first();
+        // 1. CONSULTA PRINCIPAL PARA LA TABLA (Con buscador y pestañas)
+        $query = Inscripcion::with(['capacitando', 'curso'])
+            ->when($search, function ($q, $search) {
+                $q->whereHas('capacitando', function ($sub) use ($search) {
+                    $sub->where('curp', 'like', "%{$search}%")
+                        ->orWhere('nombre_completo', 'like', "%{$search}%");
+                });
+            });
 
-            if ($inscripcion) {
-                $alumnoEncontrado = [
-                    'id' => $inscripcion->id,
-                    'nombre' => $inscripcion->capacitando->nombre_completo,
-                    'curp' => $inscripcion->capacitando->curp,
-                    'curso' => $inscripcion->curso->nombre . ' - ' . $inscripcion->curso->unidad_capacitacion,
-                    'estatus' => strtoupper($inscripcion->estado)
-                ];
-            }
+        if ($tab === 'pendientes') {
+            $query->where('estado', 'pre-registrado');
+        } elseif ($tab === 'validados') {
+            $query->where('estado', 'validado');
         }
+
+        $inscripciones = $query->orderBy('created_at', 'desc')->get();
 
         // 2. INDICADORES (KPIs) REALES
         $stats = [
@@ -43,7 +41,7 @@ class CapturistaController extends Controller
             'cursos' => Curso::where('activo', true)->count(),
         ];
 
-        // 3. DEMOGRAFÍA POR SEDE (Gráfica de barras)
+        // 3. DEMOGRAFÍA POR SEDE (Gráfica de barras) - Arreglado el error del GROUP BY
         $sedes = DB::table('inscripciones')
             ->join('cursos', 'inscripciones.curso_id', '=', 'cursos.id')
             ->select('cursos.unidad_capacitacion as sede', DB::raw('count(*) as total'))
@@ -60,7 +58,7 @@ class CapturistaController extends Controller
             ];
         });
 
-        // 4. DISTRIBUCIÓN POR EDAD (Para gráfica de barras)
+        // 4. DISTRIBUCIÓN POR EDAD (Para gráfica de Chart.js)
         $edadesRaw = DB::table('capacitandos')
             ->selectRaw('TIMESTAMPDIFF(YEAR, fecha_nacimiento, CURDATE()) as edad')
             ->get();
@@ -72,35 +70,28 @@ class CapturistaController extends Controller
             '46+' => $edadesRaw->where('edad', '>=', 46)->count(),
         ];
 
-        // 5. ACTIVIDAD RECIENTE
-        $recientes = Inscripcion::with(['capacitando'])
-            ->orderBy('created_at', 'desc')
-            ->take(5)
-            ->get()
-            ->map(function($ins) {
-                return [
-                    'id' => $ins->id,
-                    'nombre' => $ins->capacitando->nombre_completo,
-                    'curp' => $ins->capacitando->curp,
-                    'tramite' => ucfirst($ins->estado),
-                    'tiempo' => $ins->created_at->diffForHumans()
-                ];
-            });
-
+        // Mandamos todo a React
         return Inertia::render('Capturista/Index', [
+            'inscripciones' => $inscripciones,
+            'filters' => ['search' => $search, 'tab' => $tab],
             'stats' => $stats,
             'demografia' => $demografia,
-            'edades' => $edades,
-            'recientes' => $recientes,
-            'busqueda' => $search,
-            'alumnoEncontrado' => $alumnoEncontrado
+            'edades' => $edades
         ]);
-
     }
 
     // Procesa el modal: guarda checklist, notas y crea el No. de Control
     public function validar(Request $request, $id)
     {
+        // 1. BLINDAJE: Si alguien intenta hackear y manda la petición sin los checks, Laravel la rebota
+        $request->validate([
+            'chk_id' => 'accepted',
+            'chk_curp' => 'accepted',
+            'chk_domicilio' => 'accepted',
+            'chk_fotos' => 'accepted',
+        ]);
+
+        // 2. Si pasó el candado, procedemos a guardar
         $inscripcion = Inscripcion::findOrFail($id);
         
         $inscripcion->update([
