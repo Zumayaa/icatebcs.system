@@ -8,11 +8,12 @@ use App\Http\Controllers\InscripcionController;
 use App\Http\Controllers\CapturistaController;
 use App\Http\Controllers\CapacitadorController;
 use App\Http\Controllers\CursoController;
+use App\Http\Controllers\UserAdminController;
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register'),
+        'canRegister' => false,
         'laravelVersion' => Application::VERSION,
         'phpVersion' => PHP_VERSION,
     ]);
@@ -63,6 +64,10 @@ Route::middleware(['auth', 'role:admin,capturista'])->group(function () {
 // SOLO puede entrar 'admin'
 // ==========================================
 Route::middleware(['auth', 'role:admin'])->group(function () {
+    Route::get('/admin/usuarios', [UserAdminController::class, 'index'])->name('usuarios.index');
+    Route::post('/admin/usuarios', [UserAdminController::class, 'store'])->name('usuarios.store');
+    Route::put('/admin/usuarios/{id}', [UserAdminController::class, 'update'])->name('usuarios.update');
+
     // Capacitadores
     Route::get('/admin/capacitadores', [CapacitadorController::class, 'index'])->name('capacitadores.index');
     Route::post('/admin/capacitadores', [CapacitadorController::class, 'store'])->name('capacitadores.store');
@@ -74,6 +79,9 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::get('/admin/cursos', [CursoController::class, 'index'])->name('cursos.index');
     Route::get('/admin/cursos/{id}', [CursoController::class, 'show'])->name('cursos.show'); // <--- NUEVA RUTA PARA VER EL GRUPO
     Route::post('/admin/cursos/{id}/acreditacion', [CursoController::class, 'guardarAcreditacion'])->name('cursos.acreditacion');
+    Route::get('/admin/cursos/{id}/lista', [CursoController::class, 'imprimirLista'])->name('cursos.lista');
+    Route::post('/admin/cursos/{cursoId}/alumnos/{inscripcionId}/baja', [CursoController::class, 'bajaAlumno'])->name('cursos.alumnos.baja');
+    Route::get('/admin/cursos/{cursoId}/alumnos/{inscripcionId}/constancia', [CursoController::class, 'constancia'])->name('cursos.alumnos.constancia');
     Route::post('/admin/cursos', [CursoController::class, 'store'])->name('cursos.store');
     Route::put('/admin/cursos/{id}', [CursoController::class, 'update'])->name('cursos.update');
     Route::patch('/admin/cursos/{id}/toggle', [CursoController::class, 'toggleActivo'])->name('cursos.toggle');

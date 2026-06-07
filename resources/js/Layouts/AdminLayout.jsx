@@ -28,6 +28,7 @@ export default function AdminLayout({ children }) {
                                 <Link href="/dashboard" className={`nav-btn ${url === '/dashboard' ? 'active' : ''}`}>Panel</Link>
                                 <Link href="/admin/cursos" className={`nav-btn ${url.startsWith('/admin/cursos') ? 'active' : ''}`}>Cursos</Link>
                                 <Link href="/admin/capacitadores" className={`nav-btn ${url.startsWith('/admin/capacitadores') ? 'active' : ''}`}>Instructores</Link>
+                                <Link href="/admin/usuarios" className={`nav-btn ${url.startsWith('/admin/usuarios') ? 'active' : ''}`}>Usuarios</Link>
                             </>
                         )}
 
